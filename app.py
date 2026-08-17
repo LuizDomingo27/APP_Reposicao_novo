@@ -11,20 +11,19 @@ from config.tokens import COLORS, FONT_CDN, FONT_FAMILY
 from data.loader import load_data, DataLoadError
 from data.filters import filter_by_date_range, get_date_range_label
 from data.metrics import (
-    get_kpis,
+    get_chamados_kpis,
+    get_highlights,
+    get_status_distribution,
     get_rankings,
-    get_negadas_metrics,
-    get_negadas_distribution,
     get_monthly_history,
     get_weekly_distribution,
 )
 from components.navbar import render_navbar
 from components.header import render_header
-from components.kpi_cards import render_kpi_cards
-from components.rankings import render_ranking_cards
-from components.negadas_section import render_negadas_section
+from components.kpi_cards import render_kpi_cards, render_highlight_cards
+from components.rankings import render_ranking_card
 from components.monthly_table import render_monthly_table
-from components.charts import build_donut_chart_html, build_bar_chart_html
+from components.charts import build_donut_chart_html, build_area_chart_html
 from components.welcome import render_welcome
 
 # ─── Page Configuration ────────────────────────────────────────────────────────
@@ -168,7 +167,7 @@ def main():
 
     # 2. Data Ingestion Layer
     try:
-        df_repo, df_neg = load_data(uploaded_file)
+        df_repo = load_data(uploaded_file)
     except DataLoadError as e:
         st.error(f"Não foi possível processar a planilha enviada: {e}")
         return
@@ -187,62 +186,76 @@ def main():
         st.info("Nenhum dado encontrado para o período selecionado. Ajuste o intervalo de datas no menu acima.")
         return
 
-    # 5. Business Metrics Layer — Reposições
-    kpis = get_kpis(df_filtered)
+    # 5. Business Metrics Layer — Chamados
+    kpis = get_chamados_kpis(df_filtered)
+    highlights = get_highlights(df_filtered)
+    status_dist = get_status_distribution(df_filtered)
     rankings = get_rankings(df_filtered, top_n=3)
 
-    # 6. Presentation Layer: KPI & Ranking Cards
-    render_kpi_cards(
-        total_repo=kpis["total_repo"],
-        top_oficina=kpis["top_oficina"],
-        top_oficina_count=kpis["top_oficina_count"]
-    )
+    # 6. Presentation Layer: KPI Cards + Highlights
+    render_kpi_cards(kpis)
+    render_highlight_cards(highlights)
 
-    render_ranking_cards(
-        mp_data=rankings["mp_data"],
-        parte_data=rankings["parte_data"]
-    )
-
-    # 7. Presentation Layer: Analytical Charts (Reposições)
+    # 7. Presentation Layer: Weekly Evolution + Status + 3-Month Proportion
+    weekly_data = get_weekly_distribution(df_filtered, max_weeks=13)
     monthly_data = get_monthly_history(df_repo, n_months=3)
-    weekly_data = get_weekly_distribution(df_filtered, max_weeks=12)
 
-    col_left, col_right = st.columns([1, 1], gap="medium")
+    col_area, col_status, col_prop = st.columns([1.6, 1, 1], gap="medium")
 
-    with col_left:
-        render_monthly_table(monthly_data["table_data"])
-        donut_html = build_donut_chart_html(
-            labels=monthly_data["labels"],
-            values=monthly_data["values"]
-        )
-        st.components.v1.html(donut_html, height=400, scrolling=False)
-
-    with col_right:
-        bar_html = build_bar_chart_html(
+    with col_area:
+        area_html = build_area_chart_html(
             labels=weekly_data["labels"],
             values=weekly_data["values"],
-            title="Distribuição Semanal de Reposições",
-            icon_name="chart_bar",
-            color_start=COLORS["green_light"],
-            color_end=COLORS["green_accent"],
-            border_accent_color=COLORS["green_light"],
-            chart_id="repoWeeklyChart",
-            height=380,
-            dataset_label="Reposições"
+            title="Chamados por Semana",
+            subtitle="Evolução semanal do volume de chamados",
+            chart_id="chamadosWeeklyChart",
+            height=340,
+            dataset_label="Chamados",
         )
-        st.components.v1.html(bar_html, height=520, scrolling=False)
+        st.components.v1.html(area_html, height=470, scrolling=False)
 
-    # 8. Filter and Aggregate Negadas
-    if "DATA" in df_neg.columns and df_neg["DATA"].notna().any():
-        df_neg_filtered = filter_by_date_range(df_neg, "DATA", start_date, end_date)
-    else:
-        df_neg_filtered = df_neg
+    with col_status:
+        status_html = build_donut_chart_html(
+            labels=status_dist["labels"],
+            values=status_dist["values"],
+            colors=status_dist["colors"] or None,
+            title="Status dos Chamados",
+            center_label="Total",
+        )
+        st.components.v1.html(status_html, height=470, scrolling=False)
 
-    negadas_metrics = get_negadas_metrics(df_neg_filtered)
-    negadas_distribution = get_negadas_distribution(df_neg_filtered, max_weeks=12)
+    with col_prop:
+        prop_html = build_donut_chart_html(
+            labels=monthly_data["labels"],
+            values=monthly_data["values"],
+            title="Proporção - Últimos 3 Meses",
+            center_label="Total Geral",
+        )
+        st.components.v1.html(prop_html, height=470, scrolling=False)
 
-    # 9. Presentation Layer: Dedicated Negadas Section
-    render_negadas_section(negadas_metrics, negadas_distribution)
+    # 8. Presentation Layer: Supporting Rankings & Monthly History (single row)
+    rank_col1, rank_col2, rank_col3 = st.columns(3, gap="medium")
+
+    with rank_col1:
+        render_ranking_card(
+            title="Top 3 Linhas de Matéria-Prima",
+            data=rankings["mp_data"],
+            bar_color=COLORS["green_light"],
+            icon_name="layers",
+            accent_color=COLORS["green_accent"],
+        )
+
+    with rank_col2:
+        render_ranking_card(
+            title="Top 3 Partes da Peça Solicitadas",
+            data=rankings["parte_data"],
+            bar_color=COLORS["orange"],
+            icon_name="package",
+            accent_color=COLORS["orange"],
+        )
+
+    with rank_col3:
+        render_monthly_table(monthly_data["table_data"])
 
 
 if __name__ == "__main__":

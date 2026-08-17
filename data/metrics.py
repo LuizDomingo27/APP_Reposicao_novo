@@ -4,40 +4,122 @@
 
 from typing import Dict, List, Tuple, Any
 import pandas as pd
-from config.tokens import MESES_PT
+from config.tokens import MESES_PT, STATUS_COLORS
+
+STATUS_FINALIZADO = "Finalizado"
+STATUS_EM_ANDAMENTO = "Em Andamento"
 
 
-def get_kpis(df_filtered: pd.DataFrame) -> Dict[str, Any]:
-    """Calculates total requests and the top requesting workshop safely."""
+def get_chamados_kpis(df_filtered: pd.DataFrame) -> Dict[str, Any]:
+    """
+    Computes the headline "Chamados" KPIs safely:
+      • total_chamados      — number of reposição requests in the period
+      • finalizados         — chamados answered: COMPLETA or INCOMPLETA (STATUS_CHAMADO == Finalizado)
+      • em_andamento        — chamados not yet finalised
+      • taxa_finalizacao    — % of chamados finalised
+      • total_pecas         — sum of requested pieces (outliers already stripped in loader)
+      • media_pecas         — average pieces per chamado with a valid quantity
+    """
     default = {
-        "total_repo": 0,
-        "top_oficina": "N/A",
-        "top_oficina_count": 0
+        "total_chamados": 0,
+        "finalizados": 0,
+        "em_andamento": 0,
+        "taxa_finalizacao": 0.0,
+        "total_pecas": 0,
+        "media_pecas": 0.0,
     }
-    if df_filtered is None or df_filtered.empty or "OFICINA" not in df_filtered.columns:
+    if df_filtered is None or df_filtered.empty:
         return default
 
     try:
-        total_repo = len(df_filtered)
-        if total_repo == 0:
+        total_chamados = len(df_filtered)
+        if total_chamados == 0:
             return default
 
-        oficina_counts = df_filtered["OFICINA"].dropna().value_counts()
-        if oficina_counts.empty:
-            return default
+        if "STATUS_CHAMADO" in df_filtered.columns:
+            finalizados = int((df_filtered["STATUS_CHAMADO"] == STATUS_FINALIZADO).sum())
+        else:
+            finalizados = 0
+        em_andamento = total_chamados - finalizados
+        taxa_finalizacao = (finalizados / total_chamados) * 100 if total_chamados else 0.0
 
-        top_oficina_raw = str(oficina_counts.index[0])
-        top_oficina_count = int(oficina_counts.iloc[0])
-
-        top_oficina_display = top_oficina_raw.title()
-        if len(top_oficina_display) > 50:
-            top_oficina_display = top_oficina_display[:47] + "..."
+        total_pecas = 0
+        media_pecas = 0.0
+        if "QUANTIDADE" in df_filtered.columns:
+            qty = pd.to_numeric(df_filtered["QUANTIDADE"], errors="coerce").dropna()
+            if not qty.empty:
+                total_pecas = int(qty.sum())
+                media_pecas = float(qty.mean())
 
         return {
-            "total_repo": total_repo,
-            "top_oficina": top_oficina_display,
-            "top_oficina_count": top_oficina_count
+            "total_chamados": total_chamados,
+            "finalizados": finalizados,
+            "em_andamento": em_andamento,
+            "taxa_finalizacao": float(taxa_finalizacao),
+            "total_pecas": total_pecas,
+            "media_pecas": media_pecas,
         }
+    except Exception:
+        return default
+
+
+def _top_value(series: pd.Series, ignore=("", "NÃO INFORMADA", "NÃO INFORMADO")) -> Tuple[str, int]:
+    """Returns (value, count) for the most frequent non-empty entry of a series."""
+    if series is None or series.empty:
+        return ("N/A", 0)
+    counts = series.dropna().astype(str).str.strip()
+    counts = counts[~counts.str.upper().isin([v.upper() for v in ignore])].value_counts()
+    if counts.empty:
+        return ("N/A", 0)
+    return (str(counts.index[0]), int(counts.iloc[0]))
+
+
+def get_highlights(df_filtered: pd.DataFrame) -> Dict[str, Any]:
+    """
+    Computes the highlight cards safely:
+      • top_oficina  — workshop that requested the most reposições (+ its count)
+      • top_motivo   — most frequent reposição motive (+ its count)
+    """
+    default = {
+        "top_oficina": "N/A", "top_oficina_count": 0,
+        "top_motivo": "N/A", "top_motivo_count": 0,
+    }
+    if df_filtered is None or df_filtered.empty:
+        return default
+
+    try:
+        result = dict(default)
+        if "OFICINA" in df_filtered.columns:
+            name, count = _top_value(df_filtered["OFICINA"])
+            result["top_oficina"] = name.title() if name != "N/A" else "N/A"
+            result["top_oficina_count"] = count
+        if "MOTIVO" in df_filtered.columns:
+            name, count = _top_value(df_filtered["MOTIVO"])
+            result["top_motivo"] = name.title() if name != "N/A" else "N/A"
+            result["top_motivo_count"] = count
+        return result
+    except Exception:
+        return default
+
+
+def get_status_distribution(df_filtered: pd.DataFrame) -> Dict[str, Any]:
+    """Returns labels/values/colors for the Status dos Chamados donut."""
+    default: Dict[str, Any] = {"labels": [], "values": [], "colors": []}
+    if df_filtered is None or df_filtered.empty or "STATUS_CHAMADO" not in df_filtered.columns:
+        return default
+
+    try:
+        finalizados = int((df_filtered["STATUS_CHAMADO"] == STATUS_FINALIZADO).sum())
+        em_andamento = int((df_filtered["STATUS_CHAMADO"] == STATUS_EM_ANDAMENTO).sum())
+
+        labels, values, colors = [], [], []
+        for label, value in ((STATUS_FINALIZADO, finalizados), (STATUS_EM_ANDAMENTO, em_andamento)):
+            if value > 0:
+                labels.append(label)
+                values.append(value)
+                colors.append(STATUS_COLORS.get(label, "#999999"))
+
+        return {"labels": labels, "values": values, "colors": colors}
     except Exception:
         return default
 
@@ -74,109 +156,6 @@ def get_rankings(df_filtered: pd.DataFrame, top_n: int = 3) -> Dict[str, List[Tu
         return {
             "mp_data": mp_data,
             "parte_data": parte_data
-        }
-    except Exception:
-        return default
-
-
-def get_negadas_metrics(df_neg_filtered: pd.DataFrame) -> Dict[str, Any]:
-    """Calculates total rejections, total pieces denied, and average pieces per rejection safely."""
-    default = {"total_negadas": 0, "total_pecas": 0, "media_pecas": 0.0}
-    if df_neg_filtered is None or df_neg_filtered.empty:
-        return default
-
-    try:
-        total_negadas = len(df_neg_filtered)
-        total_pecas = 0
-        media_pecas = 0.0
-        if "QTD_EXTRAIDA" in df_neg_filtered.columns:
-            valid_series = pd.to_numeric(df_neg_filtered["QTD_EXTRAIDA"], errors="coerce").dropna()
-            if not valid_series.empty:
-                total_pecas = int(valid_series.sum())
-                media_pecas = float(valid_series.mean())
-
-        return {
-            "total_negadas": total_negadas,
-            "total_pecas": total_pecas,
-            "media_pecas": media_pecas
-        }
-    except Exception:
-        return default
-
-
-def get_negadas_distribution(df_neg_filtered: pd.DataFrame, max_weeks: int = 12) -> Dict[str, Any]:
-    """
-    Aggregates denied requests and total pieces by week and month safely.
-    Returns labels and values for both counts and pieces.
-    """
-    default = {
-        "weekly_negadas_labels": [],
-        "weekly_negadas_values": [],
-        "weekly_pecas_labels": [],
-        "weekly_pecas_values": [],
-        "monthly_negadas_labels": [],
-        "monthly_negadas_values": [],
-        "monthly_pecas_labels": [],
-        "monthly_pecas_values": [],
-    }
-    if df_neg_filtered is None or df_neg_filtered.empty or "DATA" not in df_neg_filtered.columns:
-        return default
-
-    try:
-        df_temp = df_neg_filtered.dropna(subset=["DATA"]).copy()
-        if not pd.api.types.is_datetime64_any_dtype(df_temp["DATA"]):
-            df_temp["DATA"] = pd.to_datetime(df_temp["DATA"], errors="coerce")
-            df_temp = df_temp.dropna(subset=["DATA"])
-
-        if df_temp.empty:
-            return default
-
-        # Numeric pieces column
-        if "QTD_EXTRAIDA" in df_temp.columns:
-            df_temp["QTD_NUM"] = pd.to_numeric(df_temp["QTD_EXTRAIDA"], errors="coerce").fillna(1).astype(int)
-        else:
-            df_temp["QTD_NUM"] = 1
-
-        # Weekly aggregation
-        df_temp["SEMANA"] = df_temp["DATA"].dt.isocalendar().week.astype(int)
-        df_temp["ANO"] = df_temp["DATA"].dt.year
-
-        weekly = df_temp.groupby(["ANO", "SEMANA"]).agg(
-            TOTAL_NEGADAS=("DATA", "count"),
-            TOTAL_PECAS=("QTD_NUM", "sum")
-        ).reset_index()
-        weekly = weekly.sort_values(["ANO", "SEMANA"]).tail(max_weeks)
-
-        weekly_labels = [f"S{int(row['SEMANA'])}" for _, row in weekly.iterrows()]
-        weekly_negadas_vals = [int(row["TOTAL_NEGADAS"]) for _, row in weekly.iterrows()]
-        weekly_pecas_vals = [int(row["TOTAL_PECAS"]) for _, row in weekly.iterrows()]
-
-        # Monthly aggregation
-        df_temp["MES_ANO"] = df_temp["DATA"].dt.to_period("M")
-        monthly = df_temp.groupby("MES_ANO").agg(
-            TOTAL_NEGADAS=("DATA", "count"),
-            TOTAL_PECAS=("QTD_NUM", "sum")
-        ).reset_index()
-        monthly = monthly.sort_values("MES_ANO").tail(6)
-
-        monthly_labels = []
-        for _, row in monthly.iterrows():
-            p = row["MES_ANO"]
-            m_name = MESES_PT.get(p.month, str(p.month))[:3]
-            monthly_labels.append(f"{m_name}/{p.year}")
-
-        monthly_negadas_vals = [int(row["TOTAL_NEGADAS"]) for _, row in monthly.iterrows()]
-        monthly_pecas_vals = [int(row["TOTAL_PECAS"]) for _, row in monthly.iterrows()]
-
-        return {
-            "weekly_negadas_labels": weekly_labels,
-            "weekly_negadas_values": weekly_negadas_vals,
-            "weekly_pecas_labels": weekly_labels,
-            "weekly_pecas_values": weekly_pecas_vals,
-            "monthly_negadas_labels": monthly_labels,
-            "monthly_negadas_values": monthly_negadas_vals,
-            "monthly_pecas_labels": monthly_labels,
-            "monthly_pecas_values": monthly_pecas_vals,
         }
     except Exception:
         return default

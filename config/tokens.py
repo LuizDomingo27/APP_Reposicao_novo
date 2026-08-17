@@ -47,3 +47,26 @@ MESES_PT = {
 
 # Donut chart color sequence
 DONUT_COLORS = ["#E8762D", "#5DB55B", "#1B3A2D", "#FFB74D"]
+
+# ─── Light KPI Card Tints (reference dashboard style) ───────────────────────────
+# Each tint: soft background, matching icon chip background, and a saturated
+# foreground used for the icon stroke and (optionally) the metric value.
+CARD_TINTS = {
+    "blue":   {"bg": "#EFF5FF", "border": "#DCE8FB", "icon_bg": "#DCE8FB", "fg": "#2563EB"},
+    "green":  {"bg": "#ECF7F0", "border": "#D4EDDD", "icon_bg": "#D4EDDD", "fg": "#1F9D57"},
+    "amber":  {"bg": "#FEF6EC", "border": "#FBE6CC", "icon_bg": "#FBE6CC", "fg": "#E8762D"},
+    "indigo": {"bg": "#F2F1FC", "border": "#E2E0F6", "icon_bg": "#E2E0F6", "fg": "#5B54C9"},
+    "teal":   {"bg": "#EAF7F5", "border": "#D2ECE9", "icon_bg": "#D2ECE9", "fg": "#0E9E96"},
+    "slate":  {"bg": "#F4F6F8", "border": "#E4E8ED", "icon_bg": "#E4E8ED", "fg": "#5B6B7B"},
+}
+
+# Status donut colors (Chamados)
+STATUS_COLORS = {
+    "Finalizado":   "#2D8A4E",
+    "Em Andamento": "#E8762D",
+}
+
+# Data-quality guard: QUANTIDADE values at/above this are treated as data-entry
+# errors (the source sheet contains typos up to 10.000.000) and excluded from
+# "Total de Peças" / "Média por Chamado". Tune here if the business rule changes.
+QUANTIDADE_OUTLIER_CAP = 10000

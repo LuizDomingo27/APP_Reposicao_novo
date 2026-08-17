@@ -1,140 +1,178 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# COMPONENT: KPI CARDS — Main metric summary cards
+# COMPONENT: KPI CARDS — Chamados summary cards (light tinted reference style)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import textwrap
+from typing import Any, Dict
 import streamlit as st
-from config.tokens import COLORS, FONT_FAMILY, FONT_CDN
+from config.tokens import COLORS, CARD_TINTS, FONT_FAMILY, FONT_CDN
 from config.icons import get_svg_icon
 
 
-def render_kpi_cards(total_repo: int, top_oficina: str, top_oficina_count: int):
-    """Renders the two primary gradient KPI cards for total requests and top workshop."""
-    icon_activity = get_svg_icon("activity", size=20, color=COLORS["orange"])
-    icon_factory = get_svg_icon("factory", size=20, color=COLORS["green_light"])
+# ── pt-BR number formatting helpers ─────────────────────────────────────────────
 
-    pct_oficina = ((top_oficina_count / total_repo) * 100 if total_repo > 0 else 0)
+def _fmt_int(n: int) -> str:
+    return f"{int(n):,}".replace(",", ".")
+
+
+def _fmt_pct(x: float) -> str:
+    return f"{x:.2f}".replace(".", ",") + "%"
+
+
+def _fmt_dec(x: float, decimals: int = 2) -> str:
+    s = f"{x:,.{decimals}f}"          # e.g. '1,234.56'
+    return s.replace(",", "§").replace(".", ",").replace("§", ".")
+
+
+def _card(tint_name: str, icon_name: str, label: str, value: str, subtitle: str) -> str:
+    """Builds a single light, tinted KPI card matching the reference dashboard."""
+    tint = CARD_TINTS[tint_name]
+    icon = get_svg_icon(icon_name, size=20, color=tint["fg"])
+    return f"""
+        <div style="
+            background: {tint['bg']};
+            border: 1px solid {tint['border']};
+            border-radius: 14px;
+            padding: 18px 20px;
+            box-shadow: 0 1px 3px rgba(27,58,45,0.04);
+        ">
+            <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px;">
+                <div style="
+                    font-size: 0.82rem;
+                    font-weight: 600;
+                    color: {COLORS['text_secondary']};
+                    line-height: 1.25;
+                ">{label}</div>
+                <div style="
+                    width: 38px; height: 38px;
+                    flex-shrink: 0;
+                    background: {tint['icon_bg']};
+                    border-radius: 10px;
+                    display: flex; align-items: center; justify-content: center;
+                ">{icon}</div>
+            </div>
+            <div style="
+                font-size: 1.9rem;
+                font-weight: 800;
+                color: {COLORS['text_primary']};
+                line-height: 1.1;
+                margin-top: 10px;
+                letter-spacing: -0.02em;
+            ">{value}</div>
+            <div style="
+                font-size: 0.76rem;
+                color: {COLORS['text_muted']};
+                font-weight: 500;
+                margin-top: 4px;
+                min-height: 1em;
+            ">{subtitle}</div>
+        </div>
+    """
+
+
+def _text_card(tint_name: str, icon_name: str, label: str, value: str, subtitle: str) -> str:
+    """Builds a highlight card whose value is (potentially long) text, not a number."""
+    tint = CARD_TINTS[tint_name]
+    icon = get_svg_icon(icon_name, size=20, color=tint["fg"])
+    return f"""
+        <div style="
+            background: {tint['bg']};
+            border: 1px solid {tint['border']};
+            border-radius: 14px;
+            padding: 18px 20px;
+            box-shadow: 0 1px 3px rgba(27,58,45,0.04);
+        ">
+            <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px;">
+                <div style="font-size: 0.82rem; font-weight: 600; color: {COLORS['text_secondary']}; line-height: 1.25;">{label}</div>
+                <div style="
+                    width: 38px; height: 38px; flex-shrink: 0;
+                    background: {tint['icon_bg']};
+                    border-radius: 10px;
+                    display: flex; align-items: center; justify-content: center;
+                ">{icon}</div>
+            </div>
+            <div style="
+                font-size: 1.12rem;
+                font-weight: 800;
+                color: {COLORS['text_primary']};
+                line-height: 1.25;
+                margin-top: 10px;
+                letter-spacing: -0.01em;
+                display: -webkit-box;
+                -webkit-line-clamp: 2;
+                -webkit-box-orient: vertical;
+                overflow: hidden;
+            " title="{value}">{value}</div>
+            <div style="
+                font-size: 0.76rem;
+                color: {COLORS['text_muted']};
+                font-weight: 500;
+                margin-top: 4px;
+                min-height: 1em;
+            ">{subtitle}</div>
+        </div>
+    """
+
+
+def render_highlight_cards(highlights: Dict[str, Any]):
+    """Renders the two highlight cards: top workshop and top reposição motive."""
+    oficina = highlights.get("top_oficina", "N/A")
+    oficina_count = highlights.get("top_oficina_count", 0)
+    motivo = highlights.get("top_motivo", "N/A")
+    motivo_count = highlights.get("top_motivo_count", 0)
+
+    cards = [
+        _text_card("slate", "factory", "Oficina que Mais Solicita",
+                   oficina, f"{_fmt_int(oficina_count)} reposições no período"),
+        _text_card("amber", "alert_circle", "Principal Motivo",
+                   motivo, f"{_fmt_int(motivo_count)} ocorrências"),
+    ]
 
     html = textwrap.dedent(f"""
     <link href="{FONT_CDN}" rel="stylesheet">
     <div style="
         font-family: {FONT_FAMILY};
         display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 20px;
-        margin-bottom: 20px;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 16px;
+        margin-bottom: 22px;
     ">
-        <!-- Total Reposições -->
-        <div style="
-            background: linear-gradient(135deg, {COLORS['green_dark']} 0%, {COLORS['green_mid']} 100%);
-            border-radius: 16px;
-            padding: 24px 28px;
-            color: white;
-            position: relative;
-            overflow: hidden;
-            box-shadow: 0 8px 30px rgba(27, 58, 45, 0.16);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-        ">
-            <div style="
-                position: absolute;
-                top: -20px; right: -20px;
-                width: 100px; height: 100px;
-                background: rgba(232, 118, 45, 0.12);
-                border-radius: 50%;
-                pointer-events: none;
-            "></div>
-            <div style="
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                font-size: 0.72rem;
-                font-weight: 700;
-                text-transform: uppercase;
-                letter-spacing: 0.12em;
-                color: rgba(255, 255, 255, 0.7);
-                margin-bottom: 8px;
-            ">
-                {icon_activity}
-                <span>Total de Reposições</span>
-            </div>
-            <div style="
-                font-size: 2.8rem;
-                font-weight: 800;
-                color: {COLORS['orange']};
-                line-height: 1;
-                margin-bottom: 4px;
-                letter-spacing: -0.02em;
-            ">{total_repo:,}</div>
-            <div style="
-                font-size: 0.78rem;
-                color: rgba(255, 255, 255, 0.5);
-                font-weight: 400;
-            ">solicitações registradas no período</div>
-        </div>
+        {''.join(cards)}
+    </div>
+    """)
+    st.html(html)
 
-        <!-- Oficina Top -->
-        <div style="
-            background: linear-gradient(135deg, {COLORS['green_dark']} 0%, {COLORS['green_mid']} 100%);
-            border-radius: 16px;
-            padding: 24px 28px;
-            color: white;
-            position: relative;
-            overflow: hidden;
-            box-shadow: 0 8px 30px rgba(27, 58, 45, 0.16);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-        ">
-            <div style="
-                position: absolute;
-                top: -15px; right: -15px;
-                width: 80px; height: 80px;
-                background: rgba(93, 181, 91, 0.1);
-                border-radius: 50%;
-                pointer-events: none;
-            "></div>
-            <div style="
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                font-size: 0.72rem;
-                font-weight: 700;
-                text-transform: uppercase;
-                letter-spacing: 0.12em;
-                color: rgba(255, 255, 255, 0.7);
-                margin-bottom: 8px;
-            ">
-                {icon_factory}
-                <span>Oficina que Mais Solicita</span>
-            </div>
-            <div style="
-                font-size: 1.25rem;
-                font-weight: 700;
-                color: white;
-                line-height: 1.25;
-                margin-bottom: 12px;
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
-            ">{top_oficina}</div>
-            <div style="
-                display: inline-flex;
-                align-items: center;
-                background: rgba(232, 118, 45, 0.15);
-                border: 1px solid rgba(232, 118, 45, 0.35);
-                border-radius: 8px;
-                padding: 4px 12px;
-            ">
-                <span style="
-                    font-size: 1.1rem;
-                    font-weight: 700;
-                    color: {COLORS['orange']};
-                ">{top_oficina_count}</span>
-                <span style="
-                    font-size: 0.75rem;
-                    color: rgba(255, 255, 255, 0.6);
-                    margin-left: 6px;
-                ">reposições ({pct_oficina:.1f}%)</span>
-            </div>
-        </div>
+
+def render_kpi_cards(kpis: Dict[str, Any]):
+    """Renders the responsive grid of Chamados KPI cards."""
+    total = kpis.get("total_chamados", 0)
+    finalizados = kpis.get("finalizados", 0)
+    em_andamento = kpis.get("em_andamento", 0)
+    taxa = kpis.get("taxa_finalizacao", 0.0)
+    total_pecas = kpis.get("total_pecas", 0)
+    media_pecas = kpis.get("media_pecas", 0.0)
+
+    cards = [
+        _card("blue", "clipboard", "Total de Chamados",
+              _fmt_int(total), "chamados no período"),
+        _card("green", "check_circle", "Taxa de Finalização",
+              _fmt_pct(taxa), f"{_fmt_int(finalizados)} finalizados"),
+        _card("amber", "clock", "Em Andamento",
+              _fmt_int(em_andamento), "chamados abertos"),
+        _card("indigo", "package", "Total Peças Solicitadas",
+              _fmt_int(total_pecas), "peças solicitadas"),
+    ]
+
+    html = textwrap.dedent(f"""
+    <link href="{FONT_CDN}" rel="stylesheet">
+    <div style="
+        font-family: {FONT_FAMILY};
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 16px;
+        margin-bottom: 22px;
+    ">
+        {''.join(cards)}
     </div>
     """)
     st.html(html)
